@@ -16,6 +16,8 @@ TLS协议的前身是网景公司推出的SSL（Secure Sockets Layer，安全套
 | TLS 1.2 | 2008年8月 | 应该是目前的主要使用版本 |
 | TLS 1.3 | 2018年8月 | 最新的TLS版本 |
 
-由于TLS 1.2仍是当下的主要使用版本，所以本项目选择TLS 1.2的RFC进行翻译，旨在方便大家更了解https的工作原理以及TLS的实现细节，喜欢的可以点点star。
+由于TLS 1.2仍是当下的主要使用版本，所以本项目选择TLS 1.2的RFC进行翻译，旨在方便大家能更深入了解https的工作原理以及TLS的实现细节，喜欢的可以点点star。
 
 IETF TLS 1.2 RFC英文原版地址： [https://www.rfc-editor.org/rfc/rfc5246.html](https://www.rfc-editor.org/rfc/rfc5246.html)
+
+### [目录](Table_of_Contents.md)
