@@ -2,9 +2,9 @@
 
 1. [介绍](Introduction.md)
 
-   1.1. 必备术语
+   1.1. [必要的术语](Requirements_Terminology.md)
 
-   1.2. 和TLS 1.1的主要不同
+   1.2. [和TLS 1.1的主要差异](Major_Differences_From_TLS1.1.md)
 
 2. 协议的目的
 
