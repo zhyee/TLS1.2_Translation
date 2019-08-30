@@ -1,12 +1,12 @@
 ## 目录
 
-1. [介绍](Introduction.md)
+1. [介绍](TLS1.2_chs.md)
 
-   1.1. [必要的术语](Requirements_Terminology.md)
+   1.1. [需要知道的术语](TLS1.2_chs.md)
 
-   1.2. [和TLS 1.1的主要差异](Major_Differences_From_TLS1.1.md)
+   1.2. [和TLS1.1版的主要差异](TLS1.2_chs.md#和tls11版的主要差异)
 
-2. 协议的目的
+2. 协议的目标
 
 3. 此文档的目的
 
