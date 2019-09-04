@@ -198,4 +198,63 @@ struct {
 
 ## 4.6.1. 变体
 
-定义结构体时可能会存在根据当前环境中已知信息的变体。选择器必须是一个定义了结构体可能值的枚举类型。
+定义结构体时可能会存在根据当前环境已知信息的变体。选择器必须是一个定义了结构体可能值的枚举类型。select中定义的枚举的每个元素都应该有一个case选项和它对应。case选项能够包含有限制的fall-through：如果两个case选项紧挨着并且之间没有字段的话，那么它们则包含相同的字段。因此，在下面的例子中，“orange”和“banana”同时包含V2。注意这是TLS 1.2协议中的新语法。
+
+变体结构的内容可以用一个符号来引用。变体选项的确定在在运行时确定而不是在语言定义时。
+
+```
+struct {
+  T1 f1;
+  T2 f2;
+  ....
+  Tn fn;
+   select (E) {
+      case e1: Te1;
+      case e2: Te2;
+      case e3: case e4: Te3;
+      ....
+      case en: Ten;
+   } [[fv]];
+} [[Tv]];
+```
+
+例如：
+
+```
+  enum { apple, orange, banana } VariantTag;
+
+  struct {
+    uint16 number;
+    opaque string[0..10]; /* 变长 */
+  } V1;
+
+  struct {
+    uint32 number;
+    opaque string[10];  /* 固定长度 */
+  } V2;
+
+  struct {
+    select (VariantTag) { /* 选择器的值是隐式的 */
+      case apple:
+        V1;  /* 变体内容, tag = apple */
+
+      case orange:
+      case banana:
+        V2;  /* 变体内容，tag = orange 或 banana */    
+    } variant_body;  /*变体中可选的标识*/
+  } VariantRecord;
+```
+
+## 4.7.1. 加密属性
+
+五种加密操作 - 数字签名，流式加密，块式加密，使用额外数据的授权加密（AEAD）和公钥加密，这些分别被设计成数字签名的，流式加密的，块式加密的， AEAD加密的和公钥加密的。一个字段的加密处理通过前置一个合适的关键词。加密key有当前session状态（查看第6.1节）。
+
+一个数字签名的元素被当做结构体DigitallySigned来处理：
+```
+struct {
+  SignatureAndHashAlgorithm algorithm;
+  opaque signature<0..2^16-1>;
+} DigitallySigned;
+```
+
+algorithm字段指定使用的算法（查看第7.4.1.4.1节来了解此字段的定义）。注意算法字段的介绍已经和以前的版本不一样。signature字段是一个用这些算法在元素内容上计算出来的。内容本身没有出现在报文中而是简单的进行计算。签名的长度受算法和key的长度决定。
