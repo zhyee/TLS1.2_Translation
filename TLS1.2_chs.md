@@ -258,3 +258,58 @@ struct {
 ```
 
 algorithm字段指定使用的算法（查看第7.4.1.4.1节来了解此字段的定义）。注意算法字段的介绍已经和老的协议版本不一样了。signature字段是一个用这些算法在元素内容上计算出来的。内容本身没有出现在报文中而是简单的进行计算。签名的长度受算法和key的长度决定。
+
+在RSA签名算法中，非透明向量包含在[PKCS1](https://www.rfc-editor.org/rfc/rfc5246.html#ref-PKCS1)中定义的RSASSA-PKCS1-v1_5签名方案生成的签名。正如PKCS1中所说明的，DigestInfo必须是DER编码（可辨别编码规则）的（[X680](https://www.rfc-editor.org/rfc/rfc5246.html#ref-X680) [X690](https://www.rfc-editor.org/rfc/rfc5246.html#ref-X690)）。对于没有参数的hash算法（包括SHA-1），DigestInfo.AlgorithmIdentifier.paramters属性必须为NULL，但在实现上必须同时接受无参数或带NULL参数的调用。注意早期的TLS版本使用不同的RSA签名方法，其不包括DigestInfo编码。
+
+在DSA算法中，20字节的SHA-1哈希算法直接通过数字签名算法运行，而不需要进行额外的hash。这会生成两个值，r和s。DSA签名算法是一个非透明的向量，它的内容用DER编码为：
+```
+Dss-Sig-Value ::= SEQUENCE {
+    r INTEGER,
+    s INTEGER
+}
+```
+
+提示：在当前的术语下，DSA指代Digital Signature Algorithm，而DSS指代NIST标准。在最初的SSL和TLS文档中，“DSS”是普遍使用的。本文档中使用“DSA”来指代算法，“DSS”来指代标准，且在代码点定义上使用“DSS”来保持历史的一致性。
+
+在流式密码加密中，原文会与从一个加密安全的伪随机数生成器生成的相同长度的字符串进行异或运算。
+
+在块式密码加密中，每一组原文被加密成一组密文。所有的块密码加密使用CBC（Cipher Block Chaining）模式，并且所有的项目都是块加密的，最终长度会是加模块长度的整数倍。
+
+在AEAD加密方式中，原文同时进行加密和完整性的保护。输入可能是任何长度，AEAD加密输出通常比输入要长，以便容纳完整性检验值。
+
+在公钥加密中，一个公钥算法用于加密数据且加密后的数据只能有相匹配的私钥来解密。公钥加密后的元素会编码成一个非透明的vector<0..2^16-1>，它的长度由加密算法和key来决定。
+
+RSA加密使用PKCS1中定义的RSAES-PKCS1-v1_5加密方法来完成。
+
+在下面的这个例子中
+
+```
+stream-ciphered struct {
+    uint8 field1;
+    uint8 field2;
+    digitally-signed opaque {
+      uint8 field3<0..255>;
+      uint8 field4;
+    };
+} UserType;
+```
+
+内部结构体的内容（field3和field4）被用做签名/hash算法的输入，且整个结构用流式密码来加密。此结构体的长度，用字节来表示，将是两个字节用来存储field1和field2，加上两字节来存储签名和哈希算法，加上两字节用来存储签名的长度，加上签名算法输出的长度，由于用于加密的算法和key的在加解密结构体之前已经知道，签名的长度也是知道的。
+
+
+## 4.8. 常量
+
+可以定义常量用于说明的目的，通过定义一个期望类型的符号并赋值给它。
+
+非确定类型（opaque，变成向量和包含opaque的结构体）不能被赋值。一个多字段的结构体或向量的字段是不能省略的。
+
+例如：
+
+```
+struct {
+  uint8 f1;
+  uint8 f2;
+} Example1;
+
+Example1 ex1 = {1, 4};  /* assigns f1 = 1, f2 = 4 */
+```
