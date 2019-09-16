@@ -369,4 +369,271 @@ TLS记录协议是一个分层的协议。在每一层中，消息可能包含�
 
 TLS连接状态是TLS记录协议的操作环境。它指定一个压缩算法，一个加密算法和一个MAC算法。额外的，这些算法的参数是已知的：连接的MAC秘钥和批量加密秘钥在读和写方向上是相同的。逻辑上来说，总是存在4种明显连接状态：当前读和当前写状态以及等待读和等待写状态。所有的记录都是在当前读和当前写状态下处理。等待状态下的安全参数可以由TLS握手协议来设置，且ChangeCipherSpec可以选择性的使其中一个等待状态变为当前状态，在这种情况下合适的当前状态被应用并替换等待状态。之后等待状态会被重新初始化成一个空状态。把没有使用安全参数初始化的状态转变成当前状态是非法的。最初的当前状态总是指定没有加密，没有压缩或者MAC会被使用。
 
-TLS连接读和连接写状态的安全参数通过提供一下值来设置：
+TLS连接读和连接写状态的安全参数通过以下参数来设置：
+
+- 连接终端
+用于判断连接中的实体是“客户端”还是“服务端”。
+
+- PRF 算法
+
+一个用于从主秘钥生成keys的算法（查看第5节和6.3节）。
+
+- 整体加密算法
+
+一个用于整体加密的算法。此参数包括算法的key大小，是否是块数据、流数据或AEAD加密，加密块的大小（如果存在的话），以及初始化向量（或nonces）的显式或隐式长度。
+
+- MAC算法
+一个用于消息认证的算法。这个参数包含MAC算法返回值的大小。
+
+- 压缩算法
+一种用于数据压缩的算法。此参数必须包含压缩所需要的所有信息。
+
+- 主秘钥
+
+连接双方公用的一个48字节的秘钥。
+
+- 客户端随机数
+
+客户端提供的一个32字节的随机数。
+
+- 服务端随机数
+
+服务端提供的一个32字节的随机数。
+
+这些参数用语言来表示如下：
+
+```
+enum {server, client} ConnectionEnd;
+
+enum {tls_prf_sha256} PRFAlgorithm;
+
+enum {null, rc4, 3des, aes} BulkCipherAlgorithm;
+
+enum {stream, block, aead} CipherType;
+
+enum {null, hmac_md5, hmac_sha1, hmac_sha256, hmac_sha384, hmac_sha512} MACAlgorithm;
+
+enum {null(0), (255)} CompressionMethod;
+
+/* 在CompressionMethod, PRFAlgorithm, BulkCipherAlgorithm 和 MACAlgorithm参数中指定的算法是可以被添加的 */
+
+struct {
+    ConnectionEnd         entity;
+    PRFAlgorithm          prf_algorithm;
+    BulkCipherAlgorithm   bulk_cipher_algorithm;
+    CipherType            cipher_type;
+    uint8                 enc_key_length;
+    uint8                 block_length;
+    uint8                 fixed_iv_length;
+    uint8                 record_iv_length;
+    MACAlgorithm          mac_algorithm;
+    uint8                 mac_length;
+    uint8                 mac_key_length;
+    CompressionMethod     compression_method;
+    opaque                master_secret[48];
+    opaque                client_random[32];
+    opaque                server_random[32];
+} SecurityParameters;
+
+```
+
+记录层会使用安全参数来生成以下6个项目（不是所有的加密方法都需要其中所有的项，这时会置空）：
+
+client write MAC key
+server write MAC key
+client write encryption key
+server write encryption key
+client write IV
+server write IV
+
+当接收和处理记录时服务端会使用客户端写参数，反之亦然。从安全参数创建这些项目所用到的算法在第6.3节有所描述。
+
+一旦设置了安全参数并且key已经生成，则可以通过使它们成为当前状态来初始化连接状态。这些当前状态必须为每一个已处理的记录更新。每一个连接状态包含下列元素：
+
+- 压缩状态
+压缩算法的当前状态。
+
+- 加密状态
+加密算法的当前状态。这包括用于连接的预定的key。对于流式加密来说，这也包含允许数据流继续进行加密或者解密所需的所有状态信息。
+
+- MAC key
+用于此连接的MAC key，如上面所创建的。
+
+- 序列数
+每个连接状态包含一个序列号，读和写状态的序列号各自维护。无论什么时候当连接状态被激活时，序列号必须设置为0。序列号是uint64类型，不能超过 2^64-1。序列号不能被包裹，如果一个TLS协议的实现需要包裹一个序列号，必须重新协商。序列号会随着记录而数值增长。在一个特别的连接状态下传输的首个记录
+
+## 6.2 记录层
+
+TLS 记录层从更高层接收未解释的数据，此数据存放在任意大小的非空块中。
+
+## 6.2.1. 分片
+
+记录层分片信息块到TLS纯文本记录，每个纯文本记录携带2^14字节或更少的数据。客户端消息的界限并不会保留在记录层（例如，多个相同内容类型的客户端消息可能会被合并到一个TLS纯文本记录，或者单个消息可能会被分片成多个记录）。
+
+```
+struct {
+  uint8 major;
+  uint8 minor;
+} ProtocolVersion;
+
+enum {
+  change_cipher_spec(20), alert(21), handshake(22), application_data(23), (255)
+} ContentType;
+
+struct {
+  ContentType type;
+  ProtocolVersion version;
+  uint16 length;
+  opaque fragment[TLSPlaintext.length];
+} TLSPlaintext;
+```
+
+- type
+用于处理附带的分片数据的更上层协议。
+
+- version
+应用协议的版本。本文档所描述的是TLS 1.2版本，使用版本号{3, 3}来表示。3.3的版本号是有历史原因的，源自使用{3, 1}来表示TLS 1.0（查看附录A.1）。注意支持多版本TLS协议的客户端在收到服务端的Hello消息前可能并不知道需要使用哪个版本的协议。查看附录E关于ClientHello应该使用哪个记录层协议版本号的讨论。
+
+- length
+紧接着的TLSPlaintext.fragment的长度（字节为单位）。长度不能超过2^14。
+
+- fragment
+应用数据。此数据是透明的并且由type字段指定的更高层次协议当做独立的数据块来处理。
+
+协议实现一定不要发送长度为0的握手，警告，或切换加密细节内容类型的数据分片。由于作为一个通信分析手段可能是有用的，所以长度为0的应用数据分片可能会被发送。
+
+注意：不同的TLS记录层类容类型的数据可能会穿插在一起。应用数据一般相比其他的类容类型有较低的传输优先级。然而，记录必须按照它们被记录层所保护的相同顺序交给网络。在握手到随后的第一次传输，接收数据的一方必须接收和处理穿插的应用层通信数据。
+
+## 6.2.2. 记录的压缩和解压缩
+
+所有的记录都会使用在当前会话状态中定义的压缩算法来进行压缩。总会存在一个活动的压缩算法；然而，一开始它会被定义成CompressionMethod.null。压缩算法会把一个TLSPlaintext结构转换成一个TLSCompressed结构。无论何时连接状态变得活跃时，压缩方法都会使用默认的状态信息来初始化。[RFC3749](https://www.rfc-editor.org/rfc/rfc3749)介绍了TLS的压缩算法。
+
+压缩必须是无损的，并且不能让内容长度增长超过1024字节。如果解压缩方法遇到一个TLSCompressed.fragment解压的长度超过了2^14字节，必须报告一个致命的解压缩失败错误。
+
+```
+struct {
+  ContentType type; /* 和TLSPlaintext.type相同 */
+  ProtocolVersion version; /* 和TLSPlaintext.version相同 */
+  uint16 length;
+  opaque fragment[TLSCompressed.length];
+} TLSCompressed;
+```
+
+- length
+TLSCompressed.fragment内容的长度（以字节为单位）。
+此长度不能超过2^14 + 1024。
+
+- fragment
+
+TLSPlaintext.fragment压缩后的形式。
+注意：CompressionMethod.null 操作是一个恒等操作，所有字段都不会改变。
+
+实现上注意：解压缩方法需要确保消息不会导致内部缓冲区溢出。
+
+## 6.2.3. 记录载体的保护
+
+加密和MAC函数会把TLSCompressed结构转换成TLSCiphertext结构。解密函数做相反的操作。记录的MAC值包含一列数以便能够检测到消息的丢失，添加或者重复。
+
+```
+struct {
+  ContentType type;
+  ProtocolVersion version;
+  uint16 length;
+  select (SecurityParameters.cipher_type) {
+    case stream: GenericStreamCipher;
+    case block: GenericBlockCipher;
+    case aead:  GenericAEADCipher;
+  } fragment;
+} TLSCiphertext;
+```
+- type
+type字段等同于TLSCompressed.type。
+
+- version
+version字段等同于TLSCompressed.version。
+
+- length
+TLSCiphertext.fragment的内容长度（单位为字节）。
+长度一定不能超过2^14 + 2048。
+
+- fragment
+TLSCompressed.fragment加密后的形式，包含MAC。
+
+## 6.2.3.1. Null或标准流式加密
+
+流式加密（包括BulkCipherAlgorithm.null；查看附录A.6）转换TLSCompressed.fragment结构到TLSCiphertext.fragment结构或反向转换。
+
+```
+stream-ciphered struct {
+  opaque content[TLSCompressed.length];
+  opaque MAC[SecurityParameters.mac_length];
+} GenericStreamCipher;
+```
+
+MAC以如下方式创建：
+
+MAC(MAC_write_key, seq_num +
+                        TLSCompressed.type +
+                        TLSCompressed.version +
+                        TLSCompressed.length +
+                        TLSCompressed.fragment);
+
+ 这里的“+”表示字符串拼接。
+
+ - seq_num
+ 此记录的序列号。
+
+ - MAC
+ 由SecurityParameters.mac_algorithm指定的MAC算法。
+
+ 注意MAC值是在加密之前计算的。流式加密器会加密整个数据块，包括MAC数据。对于不使用同步向量的流式加密器（例如RC4）来说，一条记录结束时的流式加密状态会简单的用于随后的数据包。如果加密套件使用TLS_NULL_WITH_NULL_NULL，加密由恒等操作（例如，数据不会被加密，MAC的大小为0，意味着没有使用MAC）组成。对于null和流式加密来说，TLSCiphertext.length的长度是TLSCompressed.length的长度加上SecurityParamters.mac_length的长度。
+
+## 6.2.3.2. CBC分组加密
+
+对于分组加密（例如3DES或AES），加密和MAC方法转换TLSCompressed.fragment结构到分组的TLSCiphertext.fragment结构。
+
+```
+struct {
+  opaque IV[SecurityParameters.record_iv_length];
+  block-ciphered struct {
+    opaque content[TLSCompressed.length];
+    opaque MAC[SecurityParameters.mac_length];
+    uint8 padding[GenericBlockCipher.padding_length];
+    uint8 padding_length;
+  }
+} GenericBlockCipher;
+```
+
+第6.2.3.1节介绍了MAC的生成。
+
+- IV
+初始向量（IV）的选择应该具备随机性，并且是无法预测的。注意TLS1.1版本之前是没有IV字段的，上一个记录的最后加密文本块（CBC残留）被当做IV来使用。之所以做了修改是为了阻止[CBCATT](https://www.rfc-editor.org/rfc/rfc5246.html#ref-CBCATT)当中介绍的攻击方式。对于分组加密来说，IV的长度就是SecurityParameters.record_iv_length的长度，它的值等于SecurityParameters.block_size。
+
+- padding
+Padding被添加到原文之后用于使原文的长度为分组加密块长度的整数倍。padding可以是255字节以内的任意长度，只要它们使得TLSCiphertext.length是分组长度的整数倍即可。超过必要的长度可能会导致针对协议的令人不快的攻击，这种攻击它基于分析交换消息的长度。padding数据中的每个字节都为填充内容的长度。数据接收者必须做padding的校验，如果出错必须使用bad_record_mac来报警以表明出错。
+
+- padding_length
+padding长度必须能保证GenericBlockCipher结构的总长度是分组长度的整数倍。合法的padding长度是0到255，包括255。这个长度指定padding字段的长度而不是padding_length字段本身。
+
+加密后的数据长度（TLSCiphertext.length）是一个长度大于SecurityParameters.block_length、TLSCompressed.length、SecurityParameters.mac_length和padding_length四者之和的值。
+
+例如：如果分组长度是8字节，待加密内容（TLSCompressed）的长度是61字节，MAC长度是20字节，那么填充前的数据长度是82字节（这不包括IV的长度）。因此，padding长度可以为6以便使得整个数据长度是8字节（8是分组的长度）的整数倍。padding的长度可以是6，14，22...一直到254。如果padding长度需要取最小值，那么padding长度就是6字节，且每个字节的值都为6。因此，分组加密前的GenericBlockCipher最后的8个字节将为 `xx 06 06 06 06 06 06 06`，这里的xx是MAC的最后一个字节。
+
+注意：对于CBC（Cipher Block Chaining）模式的分组加密，在任何密文被传输之前，记录的全部原文都是已知的，这点非常的关键。否则有可能让攻击者发动[CBCATT](https://www.rfc-editor.org/rfc/rfc5246.html#ref-CBCATT)中所介绍的攻击。
+
+实现上的注意事项：Canvel等。[CBCTIME](https://www.rfc-editor.org/rfc/rfc5246.html#ref-CBCTIME)已经证明了一种基于计算MAC所需时间的针对CBC padding的时序攻击。为了阻止这种攻击，协议的实现必须确保不管padding是否正确，记录的处理时间应该是相同的。一般来说，最佳的实现方法是即使padding是不正确的也去计算MAC值，然后直到那时才去拒绝数据包。例如，如果填充是不正确的，协议实现应该假设长度为0的填充并计算MAC值。由于MAC计算的性能基于数据分片的大小范围，这里留下了一个小的时序通道。但是相信这不足以被利用，由于MAC的大体积和时序信号的小体积。
+
+## 6.2.3.3. AEAD加密
+
+对于AEAD加密（例如CCM和GCM），AEAD方法转换TLSCompressed.fragment结构到AEADTLSCiphertext.fragment结构，或者反向转换。
+
+```
+struct {
+  opaque nonce_explicit[SecurityParameters.record_iv_length];
+  aead-ciphered struct {
+    opaque content[TLSCompressed.length];
+  };
+} GenericAEADCipher;
+```
+
+AEAD加密把输入当做一个单独的key，原文和验证检测中包含的“额外数据”，如[AEAD](https://www.rfc-editor.org/rfc/rfc5246.html#ref-AEAD)第2.1节中所介绍的。这个key要么是client_write_key，要么是server_write_key。没有使用MAC。
